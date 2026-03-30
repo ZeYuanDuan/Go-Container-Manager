@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aidms-postgres
+    environment:
+      POSTGRES_USER: aidms
+      POSTGRES_PASSWORD: aidms
+      POSTGRES_DB: aidms
+    ports:
+      - "5432:5432"
+    volumes:
+      - aidms_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aidms -d aidms"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  server:
+    build: .
+    container_name: aidms-server
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://aidms:aidms@postgres:5432/aidms?sslmode=disable
+      STORAGE_ROOT: /data/storage
+      # Must match host path of ./storage/uploads for workload container bind mounts
+      STORAGE_HOST_PATH: ${STORAGE_HOST_PATH}
+      SERVER_PORT: "8080"
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-key-at-least-32-chars}
+    volumes:
+      - ./storage/uploads:/data/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  aidms_pgdata:
+  aidms_storage:

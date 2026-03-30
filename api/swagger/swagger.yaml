@@ -1,0 +1,736 @@
+openapi: 3.0.3
+info:
+  title: AIDMS Container Management API
+  description: |
+    RESTful API for container management system. All resource IDs use UUIDv4 format.
+    Paths are relative to Base URL `/api/v1`. Authentication via Bearer Token (JWT) required for all endpoints except health, environments, and login.
+  version: 1.0.0
+
+servers:
+  - url: /api/v1
+    description: Relative to host (e.g. http://localhost:8080/api/v1)
+  - url: http://localhost:8080/api/v1
+    description: Local development
+
+tags:
+  - name: Health
+    description: 基礎 API
+  - name: Auth
+    description: 認證與授權
+  - name: Files
+    description: 檔案管理
+  - name: Containers
+    description: 容器管理
+  - name: Jobs
+    description: 非同步任務追蹤
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: 健康檢查
+      description: 供 K8s Liveness Probe 或 Load Balancer 使用。無需認證。
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /environments:
+    get:
+      tags: [Health]
+      summary: 取得環境白名單
+      description: 取得後端預定義的環境白名單，供前端下拉選單等 UI 使用。無需認證。
+      operationId: getEnvironments
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvironmentsResponse'
+
+  /login:
+    post:
+      tags: [Auth]
+      summary: 獲取 JWT 存取權杖
+      description: 獲取存取權杖 (JWT)。實作中會決定後續操作的 user_id。
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Bad Request - missing or invalid body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: BAD_REQUEST
+                  message: Invalid request body
+        '401':
+          description: Unauthorized - invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: UNAUTHORIZED
+                  message: Invalid credentials
+
+  /files/upload:
+    post:
+      tags: [Files]
+      summary: 上傳檔案
+      description: |
+        上傳數據檔案或應用程式碼。系統根據 Token 中的 user_id 自動存入對應路徑。
+        限制：單檔 50MB，允許 MIME 為 image/jpeg, image/png, text/csv, application/json, text/plain（以 Magic Bytes 驗證）。
+        支援 multipart/form-data，欄位名為 file。
+      operationId: uploadFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 二進位檔案
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileCreated'
+        '413':
+          description: Payload Too Large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: FILE_TOO_LARGE
+                  message: File size exceeds 50MB limit
+        '415':
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: UNSUPPORTED_MIME_TYPE
+                  message: "File type not allowed. Allowed: image/jpeg, image/png, text/csv, application/json, text/plain"
+        '400':
+          description: Bad Request - no file provided or failed to read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: BAD_REQUEST
+                  message: No file provided
+        '401':
+          description: Unauthorized - missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /files:
+    get:
+      tags: [Files]
+      summary: 取得檔案清單
+      description: 取得當前使用者的所有檔案清單。未帶 JWT 回傳 401。
+      operationId: listFiles
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: 頁碼（從 1 開始）
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: 每頁筆數（超出 100 時後端自動 cap 為 100）
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileListResponse'
+        '401':
+          description: Unauthorized - missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /files/{file_id}:
+    delete:
+      tags: [Files]
+      summary: 刪除檔案
+      description: 刪除指定檔案。
+      operationId: deleteFile
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '204':
+          description: No Content
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: FORBIDDEN
+                  message: You do not have permission to delete this file
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: FILE_NOT_FOUND
+                  message: File does not exist or has been deleted
+
+  /containers:
+    get:
+      tags: [Containers]
+      summary: 列出所有容器
+      description: 取得當前使用者所擁有的所有容器清單。
+      operationId: listContainers
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: 頁碼（從 1 開始）
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: 每頁筆數
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContainerListResponse'
+    post:
+      tags: [Containers]
+      summary: 創建容器
+      description: |
+        根據指定的環境標籤，為使用者創建獨立的容器實體，並在背景自動掛載該使用者的儲存資料夾。
+        所有容器操作皆為非同步，回傳 job_id 供後續查詢。
+      operationId: createContainer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContainerRequest'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAcceptedResponse'
+              example:
+                message: Container creation job submitted
+                job_id: "550e8400-e29b-41d4-a716-446655440001"
+        '400':
+          description: Bad Request - invalid body (JSON binding failed) or invalid environment (INVALID_ENVIRONMENT)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: INVALID_ENVIRONMENT
+                  message: Invalid environment specified
+        '409':
+          description: Conflict - Container name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: CONTAINER_NAME_DUPLICATE
+                  message: Container name already exists for this user
+        '503':
+          description: Service Unavailable - job queue full
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: SERVICE_UNAVAILABLE
+                  message: Job queue is full, please retry later
+
+  /containers/{container_id}:
+    get:
+      tags: [Containers]
+      summary: 取得單一容器狀態
+      description: 查詢特定容器的詳細設定與當前運行狀態。
+      operationId: getContainer
+      parameters:
+        - $ref: '#/components/parameters/ContainerId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContainerDetail'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: CONTAINER_NOT_FOUND
+                  message: Container does not exist
+    delete:
+      tags: [Containers]
+      summary: 刪除容器
+      description: |
+        刪除指定的容器資源。必須先 Stop 才能 Delete。容器狀態為 Running 時回傳 409。
+      operationId: deleteContainer
+      parameters:
+        - $ref: '#/components/parameters/ContainerId'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAcceptedResponse'
+              example:
+                message: Container delete job submitted
+                job_id: "550e8400-e29b-41d4-a716-446655440004"
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict - Container must be stopped first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: CONFLICT
+                  message: Container must be stopped before deletion. Call POST /containers/{container_id}/stop first
+
+  /containers/{container_id}/start:
+    post:
+      tags: [Containers]
+      summary: 啟動容器
+      description: 喚醒並啟動已創建或已停止的容器。依賴創建時定義的 command。
+      operationId: startContainer
+      parameters:
+        - $ref: '#/components/parameters/ContainerId'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAcceptedResponse'
+              example:
+                message: Container start job submitted
+                job_id: "550e8400-e29b-41d4-a716-446655440002"
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict - Container already running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: CONFLICT
+                  message: Container is already running or another operation is in progress
+
+  /containers/{container_id}/stop:
+    post:
+      tags: [Containers]
+      summary: 停止容器
+      description: 停止運行中的容器。
+      operationId: stopContainer
+      parameters:
+        - $ref: '#/components/parameters/ContainerId'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAcceptedResponse'
+              example:
+                message: Container stop job submitted
+                job_id: "550e8400-e29b-41d4-a716-446655440003"
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict - Container not running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: CONFLICT
+                  message: Container is not running or already stopped
+
+  /jobs/{job_id}:
+    get:
+      tags: [Jobs]
+      summary: 查詢任務狀態
+      description: |
+        輪詢查詢非同步任務的執行結果。僅能查詢自己建立的 Job。
+        任務不存在、已過期被清理、或屬於其他使用者時回傳 404。
+      operationId: getJob
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDetail'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: JOB_NOT_FOUND
+                  message: Job does not exist or has expired
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT 存取權杖，從 POST /login 取得
+
+  security:
+    - BearerAuth: []
+
+  parameters:
+    FileId:
+      name: file_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 檔案 ID (UUIDv4)
+    ContainerId:
+      name: container_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 容器 ID (UUIDv4)
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 任務 ID (UUIDv4)
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: 機器可讀的錯誤代碼
+            message:
+              type: string
+              description: 人類可讀的錯誤描述
+
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [UP]
+
+    EnvironmentsResponse:
+      type: object
+      required: [environments]
+      properties:
+        environments:
+          type: array
+          items:
+            type: string
+            enum: [python-3.10, ubuntu-base]
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: user1
+        password:
+          type: string
+          example: password123
+
+    LoginResponse:
+      type: object
+      required: [token, expires_in]
+      properties:
+        token:
+          type: string
+          description: JWT 存取權杖
+        expires_in:
+          type: integer
+          description: 過期秒數
+
+    FileCreated:
+      type: object
+      required: [file_id, filename, size_bytes, created_at]
+      properties:
+        file_id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+          description: 原始檔名
+        size_bytes:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+
+    FileItem:
+      type: object
+      properties:
+        file_id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+
+    FileListResponse:
+      type: object
+      required: [data, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileItem'
+        total:
+          type: integer
+          description: 符合條件的總筆數（不分頁）
+
+    CreateContainerRequest:
+      type: object
+      required: [name, environment, command]
+      properties:
+        name:
+          type: string
+          example: my-training-task
+        environment:
+          type: string
+          enum: [python-3.10, ubuntu-base]
+        command:
+          type: array
+          items:
+            type: string
+          example: ["python", "/workspace/train_model.py"]
+
+    ContainerItem:
+      type: object
+      properties:
+        container_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        environment:
+          type: string
+        status:
+          type: string
+          enum: [Created, Running, Exited, Dead]
+        created_at:
+          type: string
+          format: date-time
+
+    ContainerListResponse:
+      type: object
+      required: [data, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContainerItem'
+        total:
+          type: integer
+
+    ContainerDetail:
+      type: object
+      properties:
+        container_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        environment:
+          type: string
+        command:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [Created, Running, Exited, Dead]
+        mount_path:
+          type: string
+          default: /workspace
+        created_at:
+          type: string
+          format: date-time
+
+    JobAcceptedResponse:
+      type: object
+      required: [message, job_id]
+      properties:
+        message:
+          type: string
+        job_id:
+          type: string
+          format: uuid
+
+    JobDetail:
+      type: object
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        target_resource_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [CREATE_CONTAINER, START_CONTAINER, STOP_CONTAINER, DELETE_CONTAINER]
+        status:
+          type: string
+          enum: [PENDING, RUNNING, SUCCESS, FAILED]
+        error_message:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true

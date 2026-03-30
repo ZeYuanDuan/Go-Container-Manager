@@ -1,0 +1,154 @@
+### AIDMS Container Manager - API (success cases for manual testing)
+### Base URL: http://127.0.0.1:8080 (change if server elsewhere)
+### Usage: Run requests in order. Login first, copy token to @token. Replace {{file_id}}, {{container_id}}, {{job_id}} from prior responses.
+### For error cases (401, 403, 404, 409, 413, 415): use make test-api (scripts/api_test.sh)
+
+@baseUrl = http://127.0.0.1:8080/api/v1
+@token =
+@file_id =
+@container_id =
+@job_id =
+
+###############################################################################
+# 1. Health & Environments
+###############################################################################
+
+### GET /health
+GET {{baseUrl}}/health
+
+### GET /environments
+GET {{baseUrl}}/environments
+
+###############################################################################
+# 2. Authentication
+###############################################################################
+
+### POST /login - get token for subsequent requests
+# @name login
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "username": "user1",
+  "password": "password123"
+}
+
+###############################################################################
+# 3. Files
+###############################################################################
+
+### GET /files
+GET {{baseUrl}}/files
+Authorization: Bearer {{token}}
+
+### GET /files - pagination
+GET {{baseUrl}}/files?page=1&limit=10
+Authorization: Bearer {{token}}
+
+### POST /files/upload - text/plain
+POST {{baseUrl}}/files/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="test.txt"
+Content-Type: text/plain
+
+hello world
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### POST /files/upload - application/json
+POST {{baseUrl}}/files/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="config.json"
+Content-Type: application/json
+
+{"model":"resnet50","epochs":100,"learning_rate":0.001}
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### POST /files/upload - text/csv
+POST {{baseUrl}}/files/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="data.csv"
+Content-Type: text/csv
+
+id,name,score
+1,alice,95
+2,bob,87
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### POST /files/upload - image (use curl for binary)
+# curl -X POST -H "Authorization: Bearer $TOKEN" -F "file=@tests/testdata/test.jpg" {{baseUrl}}/files/upload
+
+### DELETE /files/{file_id}
+DELETE {{baseUrl}}/files/{{file_id}}
+Authorization: Bearer {{token}}
+
+###############################################################################
+# 4. Containers
+###############################################################################
+
+### GET /containers
+GET {{baseUrl}}/containers
+Authorization: Bearer {{token}}
+
+### GET /containers - pagination
+GET {{baseUrl}}/containers?page=1&limit=20
+Authorization: Bearer {{token}}
+
+### POST /containers - create
+# @name createContainer
+# Upload file first; container mounts /workspace = user's storage
+POST {{baseUrl}}/containers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "my-training-task",
+  "environment": "python-3.10",
+  "command": ["sh", "-c", "ls -la /workspace; sleep 60"]
+}
+
+### GET /containers/{container_id}
+GET {{baseUrl}}/containers/{{container_id}}
+Authorization: Bearer {{token}}
+
+### POST /containers/{container_id}/start
+POST {{baseUrl}}/containers/{{container_id}}/start
+Authorization: Bearer {{token}}
+
+### POST /containers/{container_id}/stop
+POST {{baseUrl}}/containers/{{container_id}}/stop
+Authorization: Bearer {{token}}
+
+### DELETE /containers/{container_id}
+# Must stop before delete
+DELETE {{baseUrl}}/containers/{{container_id}}
+Authorization: Bearer {{token}}
+
+###############################################################################
+# 5. Jobs
+###############################################################################
+
+### GET /jobs/{job_id}
+GET {{baseUrl}}/jobs/{{job_id}}
+Authorization: Bearer {{token}}
+
+###############################################################################
+# Admin (optional - for cross-user manual tests)
+###############################################################################
+
+### POST /login - admin
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "password123"
+}

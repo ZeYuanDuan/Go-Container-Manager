@@ -1,0 +1,39 @@
+# Air: Go live reload - https://github.com/air-verse/air
+# Install: go install github.com/air-verse/air@latest
+# Run: air (from this directory)
+
+root = "."
+tmp_dir = "tmp"
+
+# Load .env before building and running (required for DATABASE_URL etc.)
+env_files = [".env"]
+
+[build]
+  cmd = "go build -o ./tmp/main ./cmd/server"
+  bin = "./tmp/main"
+  include_ext = ["go", "tpl", "tmpl", "html"]
+  include_file = [".env"]
+  exclude_dir = ["tmp", "vendor", "node_modules", "tests", "spec", "api"]
+  exclude_file = []
+  exclude_regex = ["_test\\.go$"]
+  exclude_unchanged = false
+  follow_symlink = false
+  full_bin = ""
+  log = "build-errors.log"
+  poll = false
+  poll_interval = 0
+  rerun = false
+  rerun_delay = 500
+  send_interrupt = true
+  stop_on_error = false
+
+[color]
+  build = "yellow"
+  main = "magenta"
+  watcher = "cyan"
+
+[log]
+  main_only = false
+
+[misc]
+  clean_on_exit = false
